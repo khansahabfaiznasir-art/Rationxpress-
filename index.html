@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RationXpress</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#121212; color:white; margin:0; padding:0; }
+    header { background:#1db954; padding:15px; text-align:center; font-size:22px; font-weight:bold; }
+    .container { padding:15px; }
+    input, button, select, textarea {
+      width:100%; padding:10px; margin:8px 0; border:none; border-radius:8px;
+    }
+    button { background:#1db954; color:white; font-weight:bold; cursor:pointer; }
+    button:hover { opacity:0.9; }
+    .card { background:#1e1e1e; padding:15px; border-radius:10px; margin-bottom:12px; }
+    .card img { max-width:80px; border-radius:8px; display:block; margin-bottom:8px; }
+    .admin-panel { display:none; }
+  </style>
+  <!-- PDF Library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+  <header>🛒 RationXpress</header>
+  <div class="container">
+    <!-- Customer Section -->
+    <div id="customerSection">
+      <h2>Place Your Order</h2>
+      <input type="text" id="custName" placeholder="Your Name">
+      <input type="text" id="custPhone" placeholder="Your Phone Number">
+      <textarea id="custAddress" placeholder="Your Address"></textarea>
+
+      <h3>Products</h3>
+      <div id="productList"></div>
+
+      <h3>Payment Method</h3>
+      <select id="paymentMethod">
+        <option value="COD">Cash on Delivery</option>
+        <option value="UPI">UPI</option>
+        <option value="Paytm">Paytm</option>
+        <option value="GPay">Google Pay</option>
+      </select>
+
+      <button onclick="placeOrder()">Place Order</button>
+      <h3>My Orders</h3>
+      <div id="myOrders"></div>
+    </div>
+
+    <!-- Admin Login -->
+    <div id="adminLogin">
+      <h2>Admin Login</h2>
+      <input type="password" id="adminPass" placeholder="Enter Password">
+      <button onclick="loginAdmin()">Login</button>
+    </div>
+
+    <!-- Admin Section -->
+    <div id="adminSection" class="admin-panel">
+      <h2>Admin Panel</h2>
+      <button onclick="logoutAdmin()">Logout</button>
+      <button onclick="changePassword()">🔑 Change Password</button>
+
+      <h3>Add Product</h3>
+      <input type="text" id="newProdName" placeholder="Product Name">
+      <input type="number" id="newProdPrice" placeholder="Price">
+      <input type="file" id="newProdImg" accept="image/*">
+      <button onclick="addProduct()">Add Product</button>
+
+      <h3>Orders</h3>
+      <div id="adminOrders"></div>
+    </div>
+  </div>
+
+  <script>
+    let products = JSON.parse(localStorage.getItem("products")) || [];
+    let orders = JSON.parse(localStorage.getItem("orders")) || [];
+    let adminPassword = localStorage.getItem("adminPassword") || "1234";
+    let isAdmin = false;
+
+    function renderProducts(){
+      let list=document.getElementById("productList");
+      list.innerHTML="";
+      products.forEach((p,i)=>{
+        list.innerHTML+=`
+          <div class="card">
+            <img src="${p.img}" alt="${p.name}">
+            <b>${p.name}</b> - ₹${p.price} 
+            ${p.stock ? "" : "(Out of stock)"}<br>
+            ${p.stock ? `<input type='number' id='qty${i}' placeholder='Qty'>`:""}
+          </div>`;
+      });
+    }
+
+    function placeOrder(){
+      let name=document.getElementById("custName").value;
+      let phone=document.getElementById("custPhone").value;
+      let address=document.getElementById("custAddress").value;
+      let payment=document.getElementById("paymentMethod").value;
+
+      if(!name || !phone || !address){ alert("Fill all details"); return; }
+
+      let items=[];
+      products.forEach((p,i)=>{
+        let q=document.getElementById("qty"+i);
+        if(q && q.value>0){
+          items.push({name:p.name, qty:q.value, price:p.price, img:p.img});
+        }
+      });
+      if(items.length==0){ alert("Select at least 1 product"); return; }
+
+      let order={id:Date.now(), name, phone, address, payment, items, status:"Pending", deliveryBoy:null};
+      orders.push(order);
+      localStorage.setItem("orders",JSON.stringify(orders));
+      renderMyOrders();
+      alert("Order Placed!");
+    }
+
+    function renderMyOrders(){
+      let my=document.getElementById("myOrders");
+      my.innerHTML="";
+      let phone=document.getElementById("custPhone").value;
+      orders.filter(o=>o.phone==phone).forEach(o=>{
+        let total=o.items.reduce((a,b)=>a+b.qty*b.price,0);
+        my.innerHTML+=`
+          <div class="card">
+            <b>Order ID:</b> ${o.id}<br>
+            <b>Status:</b> ${o.status}<br>
+            <b>Payment:</b> ${o.payment}<br>
+            <b>Total:</b> ₹${total}<br>
+            ${o.deliveryBoy?`<b>Delivery:</b> ${o.deliveryBoy.name} (${o.deliveryBoy.phone})<br>`:""}
+            <button onclick="downloadBill(${o.id})">🧾 Download Bill</button>
+          </div>`;
+      });
+    }
+
+    function loginAdmin(){
+      let pass=document.getElementById("adminPass").value;
+      if(pass==adminPassword){
+        isAdmin=true;
+        document.getElementById("adminLogin").style.display="none";
+        document.getElementById("adminSection").style.display="block";
+        renderAdminOrders();
+      } else alert("Wrong password");
+    }
+
+    function logoutAdmin(){
+      isAdmin=false;
+      document.getElementById("adminLogin").style.display="block";
+      document.getElementById("adminSection").style.display="none";
+    }
+
+    function changePassword(){
+      let oldPass = prompt("Enter Old Password:");
+      if(oldPass !== adminPassword){
+        alert("Wrong old password!");
+        return;
+      }
+      let newPass = prompt("Enter New Password:");
+      if(newPass && newPass.length >= 4){
+        adminPassword = newPass;
+        localStorage.setItem("adminPassword", adminPassword);
+        alert("Password changed successfully!");
+      } else {
+        alert("Password must be at least 4 characters!");
+      }
+    }
+
+    function addProduct(){
+      let n=document.getElementById("newProdName").value;
+      let p=document.getElementById("newProdPrice").value;
+      let file=document.getElementById("newProdImg").files[0];
+
+      if(!n||!p||!file){ alert("Fill all details"); return; }
+
+      let reader=new FileReader();
+      reader.onload=function(e){
+        products.push({name:n, price:parseInt(p), stock:true, img:e.target.result});
+        localStorage.setItem("products",JSON.stringify(products));
+        renderProducts();
+        alert("Product Added");
+      }
+      reader.readAsDataURL(file);
+    }
+
+    function toggleStock(i){
+      products[i].stock=!products[i].stock;
+      localStorage.setItem("products",JSON.stringify(products));
+      renderProducts();
+      renderAdminOrders();
+    }
+
+    function assignDelivery(id){
+      let boy=prompt("Enter Delivery Boy Name");
+      let phone=prompt("Enter Delivery Boy Phone");
+      let order=orders.find(o=>o.id==id);
+      order.deliveryBoy={name:boy,phone:phone};
+      localStorage.setItem("orders",JSON.stringify(orders));
+      renderAdminOrders();
+    }
+
+    function updateStatus(id,status){
+      let order=orders.find(o=>o.id==id);
+      order.status=status;
+      localStorage.setItem("orders",JSON.stringify(orders));
+      renderAdminOrders();
+    }
+
+    function renderAdminOrders(){
+      let ad=document.getElementById("adminOrders");
+      ad.innerHTML="";
+      orders.forEach((o)=>{
+        let total=o.items.reduce((a,b)=>a+b.qty*b.price,0);
+        ad.innerHTML+=`
+          <div class="card">
+            <b>${o.name}</b> (${o.phone})<br>
+            ${o.address}<br>
+            <b>Payment:</b> ${o.payment}<br>
+            <b>Items:</b> ${o.items.map(i=>`${i.name} x${i.qty}`).join(", ")}<br>
+            <b>Total:</b> ₹${total}<br>
+            <b>Status:</b> ${o.status}<br>
+            ${o.deliveryBoy?`<b>Delivery:</b> ${o.deliveryBoy.name} (${o.deliveryBoy.phone})<br>`:""}
+            <button onclick="updateStatus(${o.id},'Accepted')">✅ Accept</button>
+            <button onclick="updateStatus(${o.id},'Rejected')">❌ Reject</button>
+            <button onclick="assignDelivery(${o.id})">👤 Assign Delivery</button>
+            <button onclick="downloadBill(${o.id})">🧾 Download Bill</button>
+          </div>`;
+      });
+
+      ad.innerHTML+="<h3>Manage Stock</h3>";
+      products.forEach((p,i)=>{
+        ad.innerHTML+=`
+          <div class="card">
+            <img src="${p.img}" alt="${p.name}">
+            ${p.name} - ₹${p.price} 
+            [${p.stock?"In Stock":"Out of Stock"}]
+            <button onclick="toggleStock(${i})">Toggle Stock</button>
+          </div>`;
+      });
+    }
+
+    async function downloadBill(id){
+      let o=orders.find(x=>x.id==id);
+      if(!o) return;
+
+      let total=o.items.reduce((a,b)=>a+b.qty*b.price,0);
+
+      let content=`
+RationXpress Bill
+----------------------------
+Order ID: ${o.id}
+Name: ${o.name}
+Phone: ${o.phone}
+Address: ${o.address}
+Payment: ${o.payment}
+
+Items:
+${o.items.map(i=>`${i.name} x${i.qty} = ₹${i.qty*i.price}`).join("\n")}
+
+Total: ₹${total}
+Status: ${o.status}
+${o.deliveryBoy?`Delivery By: ${o.deliveryBoy.name} (${o.deliveryBoy.phone})`:""}
+      `;
+
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      doc.setFont("courier", "normal");
+      doc.setFontSize(12);
+      doc.text(content, 10, 10);
+      doc.save(`RationXpress_Bill_${o.id}.pdf`);
+    }
+
+    renderProducts();
+  </script>
+</body>
+</html>
